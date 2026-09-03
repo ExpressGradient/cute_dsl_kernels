@@ -2,32 +2,31 @@
 
 CuTe DSL kernels built incrementally to learn and optimize GPU matrix multiplication.
 
-## Current kernel
+## Kernels
 
-Naive SM80 FP16 GEMM using `m16n8k16` warp MMA:
+Both are handwritten SM80 FP16 GEMMs using `m16n8k16` warp MMA, FP32
+accumulation, a `128 x 128 x 32` CTA tile, and four warps per block.
 
-```text
-GMEM A/B -> RMEM fragments -> warp MMA -> FP32 accumulator -> GMEM C
-```
+- `gemm_direct_kernel.py`: GMEM to RMEM, then warp MMA.
+- `gemm_smem_kernel.py`: single-stage SMEM staging with a swizzled layout.
 
-- Matrix size: `1024 x 1024`
-- CTA tile: `128 x 128 x 32`
-- MMA atom layout: `(2, 2, 1)` — four warps per block
-- FP16 inputs/output with FP32 accumulation
-- Direct global-memory-to-register loads; no shared-memory staging yet
-- Checked against `torch.mm`
+Kernel code and benchmark code are kept separate.
 
-## Current benchmark
-
-| Implementation | Median | P95 |
-| --- | ---: | ---: |
-| PyTorch `torch.mm` | 0.2516 ms | 0.2659 ms |
-| Naive CuTe GEMM | 16.7678 ms | 17.7127 ms |
-
-Measured with 5 warmup runs and 100 synchronized iterations.
-
-## Run
+## Benchmark
 
 ```bash
-uv run gemm.py
+uv run benchmark_gemm.py gemm_direct_kernel --output gemm_direct_benchmark.csv
+uv run benchmark_gemm.py gemm_smem_kernel --output gemm_smem_benchmark.csv
 ```
+
+Results are written to `results/` automatically.
+
+The benchmark covers nine square and rectangular shapes. It compiles outside
+the timed region, preallocates outputs, uses one CUDA stream and CUDA events,
+warms up both implementations, alternates their order across seven rounds, and
+checks every result against `torch.mm`.
+
+On the RTX 3060 Laptop GPU, both CuTe kernels beat `torch.mm` at
+`1024 x 1024 x 1024`. PyTorch is faster on the other tested shapes. See the
+[direct results](results/gemm_direct_benchmark.md) and
+[single-stage SMEM results](results/gemm_smem_benchmark.md).
