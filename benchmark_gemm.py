@@ -11,15 +11,15 @@ from cutlass import cute
 from cutlass.cute.runtime import from_dlpack, make_fake_stream
 
 SHAPES = (
-    (256, 256, 256),
-    (512, 512, 512),
-    (1024, 1024, 1024),
-    (2048, 2048, 2048),
-    (4096, 4096, 4096),
-    (256, 1024, 512),
-    (1024, 256, 512),
-    (512, 2048, 1024),
-    (2048, 512, 1024),
+    ("batched decode", 128, 4096, 4096),
+    ("short prefill", 512, 4096, 4096),
+    ("long prefill", 4096, 4096, 4096),
+    ("QKV projection", 1024, 6144, 4096),
+    ("FFN gate+up", 1024, 24576, 4096),
+    ("FFN down", 1024, 4096, 12288),
+    ("wide QKV projection", 1024, 8192, 3072),
+    ("sliding QKV projection", 1024, 10240, 2048),
+    ("compact QKV projection", 1024, 3072, 2048),
 )
 
 
@@ -45,7 +45,7 @@ def main():
     cute_stream = cuda.CUstream(torch_stream.cuda_stream)
     rows = []
 
-    for m, n, k in SHAPES:
+    for workload, m, n, k in SHAPES:
         a = torch.rand(m, k, device="cuda", dtype=torch.float16)
         b = torch.rand(k, n, device="cuda", dtype=torch.float16)
         torch_c = torch.empty((m, n), device="cuda", dtype=torch.float16)
@@ -76,9 +76,9 @@ def main():
         torch_ms = statistics.median(samples["torch"])
         cute_ms = statistics.median(samples["cute"])
         speedup = torch_ms / cute_ms
-        rows.append((m, n, k, torch_ms, cute_ms, speedup))
+        rows.append((workload, m, n, k, torch_ms, cute_ms, speedup))
         print(
-            f"{m}x{n}x{k}: Torch {torch_ms:.4f} ms | "
+            f"{workload} {m}x{n}x{k}: Torch {torch_ms:.4f} ms | "
             f"CuTe {cute_ms:.4f} ms | {speedup:.3f}x | PASS",
             flush=True,
         )
@@ -87,7 +87,9 @@ def main():
     output.parent.mkdir(exist_ok=True)
     with output.open("w", newline="") as file:
         writer = csv.writer(file)
-        writer.writerow(("M", "N", "K", "Torch ms", "CuTe ms", "Speedup"))
+        writer.writerow(
+            ("Workload", "M", "N", "K", "Torch ms", "CuTe ms", "Speedup")
+        )
         writer.writerows(rows)
     print(f"Saved {output}")
 
